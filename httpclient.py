@@ -20,7 +20,6 @@
 
 import sys
 import socket
-import re
 # you may use urllib to encode data appropriately
 import urllib.parse
 
@@ -47,7 +46,7 @@ class HTTPClient(object):
         return int(data.split()[1])
 
     def get_headers(self, data):
-        return None
+        return data.split('\r\n')[:-1]
 
     def get_body(self, data):
         return data.split('\r\n')[-1]
@@ -71,12 +70,35 @@ class HTTPClient(object):
         return buffer.decode('utf-8')
 
     def parse_url(self, url):
+        '''
+        Parse the url and return the hostname, port, and path
+
+        Parameters
+        ---
+        url : str
+            URL to be parsed
+
+        Returns
+        ---
+        host : str
+            The URL hostname
+        port : int
+            The URL port
+        path : str
+            The URL path
+        '''
         parse_result = urllib.parse.urlparse(url)
+        # Get the parsed path, and add query and fragment if they exist
         if parse_result.path:
-            path = parse_result.path + parse_result.query + parse_result.fragment
+            path = f"{parse_result.path}"
+            if parse_result.query:
+                path += f"?{parse_result.query}"
+            if parse_result.fragment:
+                path += f"#{parse_result.fragment}"
         else:
             path = "/"
 
+        # If port is parsed, use parsed port. Else use 80 if HTTP and 443 if HTTPS
         if parse_result.port:
             port = parse_result.port
         elif parse_result.scheme == "http":
@@ -89,12 +111,32 @@ class HTTPClient(object):
         return host, port, path
 
     def send_request(self, host, port, request):
+        '''
+        Send the request to the host and port
+
+        Parameters
+        ---
+        host : str
+            URL hostname
+        port : int
+            URL port
+        request : str
+            HTTP request string
+
+        Returns
+        ---
+        code : int
+            HTTP code
+        body : str
+            HTTP response
+        '''
+        # Send the HTTP request using socket and get data back
         self.connect(host, port)
         self.sendall(request)
         data = self.recvall(self.socket)
-        print(data)
         self.close()
 
+        # Parse the HTTP code and body from the response
         code = self.get_code(data)
         body = self.get_body(data)
 
@@ -103,33 +145,39 @@ class HTTPClient(object):
     def GET(self, url, args=None):
         host, port, path = self.parse_url(url)
 
+        # Build HTTP GET request
         request = f"GET {path} HTTP/1.1\r\n"
         request += f"Host: {host}\r\n"
-        request += f"User-Agent: nathanlytang/0.1\r\n"
-        request += f"Accept: */*\r\n"
-        request += f"Connection: close\r\n\r\n"
-
+        request += "User-Agent: nathanlytang/0.1\r\n"
+        request += "Accept: */*\r\n"
+        request += "Connection: close\r\n\r\n"
         code, body = self.send_request(host, port, request)
 
         return HTTPResponse(code, body)
 
-        # return HTTPResponse(code, body)
-
     def POST(self, url, args=None):
         host, port, path = self.parse_url(url)
 
-        # if args:
-        #     args = urllib.parse.urlencode(args)
+        # Add POST arguments to the request if they exist
+        if args:
+            args = urllib.parse.urlencode(args)
+            request_content = "Content=Type: application/x-www-urlencoded\r\n"
+            request_content += f"Content-Length: {len(args.encode('utf-8'))}\r\n"
+        else:
+            args = ""
+            request_content = "Content-Length: 0\r\n"
 
-        # request = f"POST {path} HTTP/1.1\r\n"
-        # request += f"Host: {host}\r\n"
-        # request += f"User-Agent: nathanlytang/0.1\r\n"
-        # request += f"Accept: */*\r\n"
-        # request += f"Connection: close\r\n\r\n"
+        # Build HTTP POST request
+        request = f"POST {path} HTTP/1.1\r\n"
+        request += f"Host: {host}\r\n"
+        request += "User-Agent: nathanlytang/0.1\r\n"
+        request += "Accept: */*\r\n"
+        request += request_content
+        request += "Connection: close\r\n\r\n"
+        request += args
+        code, body = self.send_request(host, port, request)
 
-        # code, body = self.send_request(host, port, request)
-
-        # return HTTPResponse(code, body)
+        return HTTPResponse(code, body)
 
     def command(self, url, command="GET", args=None):
         if (command == "POST"):
